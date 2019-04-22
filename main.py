@@ -23,10 +23,43 @@
 # SOFTWARE.
 
 
-# from socket import socket, AF_INET, SOCK_STREAM
-# from threading import Thread, Lock
+from socket import socket, AF_INET, SOCK_STREAM
+from threading import Thread, Lock
 from sys import argv
 
+class TelnetListener(Thread):
+    def __init__(self, port, callback):
+        super().__init__()
+        self.port = port
+        self.callback = callback
+    def run(self):
+        try:
+            self.socket = socket(AF_INET, SOCK_STREAM)
+            self.socket.bind(('', self.port))
+            self.socket.listen()
+            while True:
+                self.callback(*self.socket.accept())
+        finally:
+            self.socket.close()
+
+class TelnetServer:
+    def __init__(self, ports):
+        self.ports = ports
+        self.threads = [TelnetListener(x, self.new) for x in ports]
+        self.clients = []
+        self.clients_lock = Lock()
+    def new(self, socket, addr):
+        with self.clients_lock:
+            self.clients += [(socket)]
+        fulladdr = ':'.join([str(x) for x in addr])
+        socket.send(f'Hello {fulladdr}! Thanks for your connecting.\n'.encode())
+        self.remove(socket)
+    def remove(self, x):
+        with self.clients_lock:
+            self.clients.remove(x)
+    def start(self):
+        for t in self.threads:
+            t.start()
 
 if __name__ == '__main__':
     ports = []
@@ -38,3 +71,4 @@ if __name__ == '__main__':
     if not ports:
         ports = [ 23 ]
     print('Ports:', ports if ports[1:] else ports[0])
+    TelnetServer(ports).start()
