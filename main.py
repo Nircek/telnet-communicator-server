@@ -30,17 +30,39 @@ from sys import argv
 class TelnetListener(Thread):
     def __init__(self, port, callback):
         super().__init__()
-        self.port = port
-        self.callback = callback
+        self.port, self.callback = port, callback
+        self.sig = False
     def run(self):
-        try:
-            self.socket = socket(AF_INET, SOCK_STREAM)
-            self.socket.bind(('', self.port))
-            self.socket.listen()
-            while True:
-                self.callback(*self.socket.accept())
-        finally:
-            self.socket.close()
+        self.socket = socket(AF_INET, SOCK_STREAM)
+        self.socket.bind(('', self.port))
+        self.socket.listen()
+        while not self.sig:
+            self.callback(*self.socket.accept())
+    def stop(self):
+        self.sig = True
+        socket(AF_INET, SOCK_STREAM).connect(('localhost', self.port)) #https://stackoverflow.com/a/16736227/6732111
+        self.socket.close()
+
+class TelnetUserConnector(Thread):
+    def __init__(self, server, socket, addr, port):
+        super().__init__()
+        self.socket, self.addr = socket, addr
+        self.port, self.server = port, server
+        self.send = self.socket.sendall
+        self.sig = False
+
+    def run(self):
+        self.server.broadcast(f'{self.addr}:{self.port} joined server.\n'.encode())
+        while not self.sig:
+            d = self.socket.recv(2**10)
+            if d:
+                self.server.broadcast(f'{self.addr}:{self.port}: '.encode()+d)
+            else:
+                self.server.remove(self)
+                self.server.broadcast(f'{self.addr}:{self.port} left server.\n'.encode())
+    def stop(self):
+        self.sig = True
+        self.socket.close()
 
 class TelnetServer:
     def __init__(self, ports):
@@ -50,16 +72,24 @@ class TelnetServer:
         self.clients_lock = Lock()
     def new(self, socket, addr):
         with self.clients_lock:
-            self.clients += [(socket)]
-        fulladdr = ':'.join([str(x) for x in addr])
-        socket.send(f'Hello {fulladdr}! Thanks for your connecting.\n'.encode())
-        self.remove(socket)
+            t = TelnetUserConnector(self, socket, *addr)
+            self.clients += [t]
+            t.start()
     def remove(self, x):
         with self.clients_lock:
             self.clients.remove(x)
     def start(self):
         for t in self.threads:
             t.start()
+    def broadcast(self, msg):
+        for c in self.clients:
+            c.send(msg)
+    def stop(self):
+        for t in self.threads:
+            t.stop()
+        for c in self.clients:
+            c.stop()
+        print('ok')
 
 if __name__ == '__main__':
     ports = []
@@ -71,4 +101,10 @@ if __name__ == '__main__':
     if not ports:
         ports = [ 23 ]
     print('Ports:', ports if ports[1:] else ports[0])
-    TelnetServer(ports).start()
+    server = TelnetServer(ports)
+    server.start()
+    try:
+        while True:
+            input()
+    finally:
+        server.stop()
