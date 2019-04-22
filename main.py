@@ -23,24 +23,30 @@
 # SOFTWARE.
 
 
-from socket import socket, AF_INET, SOCK_STREAM
+from socket import socket, AF_INET, SOCK_STREAM, SHUT_RD, SOL_SOCKET, SO_REUSEADDR
 from threading import Thread, Lock
 from sys import argv
 
 class TelnetListener(Thread):
-    def __init__(self, port, callback):
+    def __init__(self, port, server):
         super().__init__()
-        self.port, self.callback = port, callback
-        self.sig = False
+        self.port, self.server, self.down = port, server, False
     def run(self):
-        self.socket = socket(AF_INET, SOCK_STREAM)
-        self.socket.bind(('', self.port))
-        self.socket.listen()
-        while not self.sig:
-            self.callback(*self.socket.accept())
+        try:
+            self.socket = socket(AF_INET, SOCK_STREAM)
+            self.socket.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1) # anti-already-in-use
+            self.socket.bind(('', self.port))
+            self.socket.listen()
+            while True:
+                self.server.new(*self.socket.accept())
+        except:
+            if self.down:
+                pass
+            else:
+                raise
     def stop(self):
-        self.sig = True
-        socket(AF_INET, SOCK_STREAM).connect(('localhost', self.port)) #https://stackoverflow.com/a/16736227/6732111
+        self.down = True
+        self.socket.shutdown(SHUT_RD)
         self.socket.close()
 
 class TelnetUserConnector(Thread):
@@ -48,26 +54,34 @@ class TelnetUserConnector(Thread):
         super().__init__()
         self.socket, self.addr = socket, addr
         self.port, self.server = port, server
-        self.send = self.socket.sendall
-        self.sig = False
-
+        self.send, self.down = self.socket.sendall, False
     def run(self):
-        self.server.broadcast(f'{self.addr}:{self.port} joined server.\n'.encode())
-        while not self.sig:
-            d = self.socket.recv(2**10)
-            if d:
-                self.server.broadcast(f'{self.addr}:{self.port}: '.encode()+d)
+        try:
+            self.down = False
+            self.server.broadcast(f'{self.addr}:{self.port} joined server.\n'.encode())
+            while True:
+                d = self.socket.recv(2**10)
+                if self.down:
+                    break
+                if d:
+                    self.server.broadcast(f'{self.addr}:{self.port}: '.encode()+d)
+                else:
+                    self.server.remove(self)
+                    self.server.broadcast(f'{self.addr}:{self.port} left server.\n'.encode())
+        except:
+            if self.down:
+                pass
             else:
-                self.server.remove(self)
-                self.server.broadcast(f'{self.addr}:{self.port} left server.\n'.encode())
+                raise
     def stop(self):
-        self.sig = True
+        self.down = True
+        self.socket.shutdown(SHUT_RD)
         self.socket.close()
 
 class TelnetServer:
     def __init__(self, ports):
         self.ports = ports
-        self.threads = [TelnetListener(x, self.new) for x in ports]
+        self.threads = [TelnetListener(x, self) for x in ports]
         self.clients = []
         self.clients_lock = Lock()
     def new(self, socket, addr):
@@ -76,6 +90,7 @@ class TelnetServer:
             self.clients += [t]
             t.start()
     def remove(self, x):
+        x.stop()
         with self.clients_lock:
             self.clients.remove(x)
     def start(self):
@@ -85,11 +100,14 @@ class TelnetServer:
         for c in self.clients:
             c.send(msg)
     def stop(self):
+        self.broadcast('Server is going down...\n'.encode())
         for t in self.threads:
             t.stop()
         for c in self.clients:
             c.stop()
-        print('ok')
+    def block(self):
+        for e in self.threads+self.clients:
+            e.join()
 
 if __name__ == '__main__':
     ports = []
@@ -104,7 +122,8 @@ if __name__ == '__main__':
     server = TelnetServer(ports)
     server.start()
     try:
-        while True:
-            input()
+        server.block()
+    except KeyboardInterrupt:
+        print('Interrupting... ')
     finally:
         server.stop()
