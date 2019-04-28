@@ -55,19 +55,23 @@ class TelnetUserConnector(Thread):
         self.socket, self.addr = socket, addr
         self.port, self.server = port, server
         self.send, self.down = self.socket.sendall, False
+        self.nick = f'{self.addr}:{self.port}'.encode()
     def run(self):
         try:
             self.down = False
-            self.server.broadcast(f'{self.addr}:{self.port} joined server.\n'.encode())
+            self.send('Type your nick: '.encode())
+            d = self.socket.recv(32)
+            self.nick = d.decode().strip()
+            self.server.broadcast(f'{self.nick} joined server.\n'.encode())
             while True:
                 d = self.socket.recv(2**10)
                 if self.down:
                     break
                 if d:
-                    self.server.broadcast(f'{self.addr}:{self.port}: '.encode()+d)
+                    self.server.broadcast(f'{self.nick}: '.encode()+d)
                 else:
                     self.server.remove(self)
-                    self.server.broadcast(f'{self.addr}:{self.port} left server.\n'.encode())
+                    self.server.broadcast(f'{self.nick} left server.\n'.encode())
         except:
             if self.down:
                 pass
