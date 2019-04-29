@@ -54,8 +54,13 @@ class TelnetUserConnector(Thread):
         super().__init__()
         self.socket, self.addr = socket, addr
         self.port, self.server = port, server
-        self.send, self.down = self.socket.sendall, False
+        self.down = False
         self.nick = f'{self.addr}:{self.port}'.encode()
+    def send(self, msg):
+        try:
+            self.socket.sendall(msg)
+        except BrokenPipeError:
+            self.server.remove(self)
     def run(self):
         try:
             self.down = False
@@ -83,7 +88,10 @@ class TelnetUserConnector(Thread):
                 raise
     def stop(self):
         self.down = True
-        self.socket.shutdown(SHUT_RD)
+        try:
+            self.socket.shutdown(SHUT_RD)
+        except OSError:
+            pass
         self.socket.close()
 
 class TelnetServer:
@@ -105,6 +113,7 @@ class TelnetServer:
         for t in self.threads:
             t.start()
     def broadcast(self, msg):
+        print(msg)
         for c in self.clients:
             c.send(msg)
     def stop(self):
