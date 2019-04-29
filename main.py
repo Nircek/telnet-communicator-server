@@ -54,13 +54,18 @@ class TelnetUserConnector(Thread):
         super().__init__()
         self.socket, self.addr = socket, addr
         self.port, self.server = port, server
-        self.down = False
+        self.down, self.destroyed = False, False
         self.nick = f'{self.addr}:{self.port}'.encode()
+    def destroy(self):
+        if not self.destroyed:
+            self.destroyed = True
+            self.server.remove(self)
+            self.server.broadcast(self.nick + ' left server.\n'.encode())
     def send(self, msg):
         try:
             self.socket.sendall(msg)
         except BrokenPipeError:
-            self.server.remove(self)
+            self.destroy()
     def run(self):
         try:
             self.down = False
@@ -79,8 +84,9 @@ class TelnetUserConnector(Thread):
                 if d:
                     self.server.broadcast(self.nick + ': '.encode()+d)
                 else:
-                    self.server.remove(self)
-                    self.server.broadcast(self.nick + ' left server.\n'.encode())
+                    self.destroy()
+        except ConnectionResetError:
+            self.destroy()
         except:
             if self.down:
                 pass
