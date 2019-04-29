@@ -61,17 +61,21 @@ class TelnetUserConnector(Thread):
             self.down = False
             self.send('Type your nick: '.encode())
             d = self.socket.recv(32)
-            self.nick = d.decode().strip()
-            self.server.broadcast(f'{self.nick} joined server.\n'.encode())
+            if d[-1] == 0x0a: # \n
+                d = d[:-1]
+            if d[-1] == 0x0d: # \r
+                d = d[:-1]
+            self.nick = d
+            self.server.broadcast(self.nick + ' joined server.\n'.encode())
             while True:
                 d = self.socket.recv(2**10)
                 if self.down:
                     break
                 if d:
-                    self.server.broadcast(f'{self.nick}: '.encode()+d)
+                    self.server.broadcast(self.nick + ': '.encode()+d)
                 else:
                     self.server.remove(self)
-                    self.server.broadcast(f'{self.nick} left server.\n'.encode())
+                    self.server.broadcast(self.nick + ' left server.\n'.encode())
         except:
             if self.down:
                 pass
