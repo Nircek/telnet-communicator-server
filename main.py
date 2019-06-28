@@ -55,7 +55,7 @@ class TelnetUserConnector(Thread):
         self.socket, self.addr = socket, addr
         self.port, self.server = port, server
         self.down, self.destroyed = False, False
-        self.nick = f'{self.addr}:{self.port}'.encode()
+        self.nick = None
     def destroy(self):
         if not self.destroyed:
             self.destroyed = True
@@ -120,7 +120,7 @@ class TelnetServer:
             t.start()
     def broadcast(self, msg):
         print(msg)
-        for c in self.clients:
+        for c in filter(lambda x: x.nick is not None, self.clients):
             c.send(msg)
     def stop(self):
         self.broadcast('Server is going down...\n'.encode())
