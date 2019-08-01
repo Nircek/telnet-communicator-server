@@ -1,0 +1,14 @@
+[Unit]
+Description=The Python simple telnet chat server
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=5
+User=root
+ExecStart=/etc/telnet-communicator-server/main.py 23231 23232
+
+[Install]
+WantedBy=multi-user.target
